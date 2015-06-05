@@ -1,0 +1,84 @@
+#!/usr/bin/perl --
+
+use strict;
+use Net::Twitter::Lite::WithAPIv1_1;
+use Config::Simple;
+use File::Spec;
+
+if(@ARGV != 1) {
+	print "not found station_id\n";
+	print "USAGE: " . __FILE__ . " station_id\n";
+	exit -1;
+}
+
+my $station_id = $ARGV[0];
+
+my ($cfg, $param, $base_path, $setting_path, $setting_file);
+$base_path = File::Spec->rel2abs();
+$base_path =~ s/__FILE__//g;
+$setting_path = "$base_path/config";
+$setting_file = "$setting_path/$station_id.ini";
+if(!-d $setting_path){
+        mkdir $setting_path;
+}
+
+if(! -f "$setting_file") {
+	print "not Setting File.\n";
+	print "Please get Application Token data. -> [https://apps.twitter.com/]\n";
+	open (FILE, "> $setting_file") or die "$!";
+	print FILE "[CONSUMER_PARAM]\n";
+	print FILE "CONSUMER_KEY    = xxxxxxxxxxxxxxxxxxxxx\n";
+	print FILE "CONSUMER_SECRET = xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n";
+	close (FILE);
+	exit 0;
+}
+
+$cfg = new Config::Simple("$setting_file");
+$param = $cfg->vars();
+
+# コンシューマ セット
+my %INIT_PARAMS = (
+    consumer_key    => $param->{"CONSUMER_PARAM.CONSUMER_KEY"},
+    consumer_secret => $param->{"CONSUMER_PARAM.CONSUMER_SECRET"},
+    ssl             => 1,
+);
+
+my $t = Net::Twitter::Lite::WithAPIv1_1->new(%INIT_PARAMS);
+
+eval {
+	print "Login URL: " . $t->get_authorization_url . "\n";
+};
+if($@) {
+	print "Error: 401 Not Found Application\n";
+	exit 1;
+}
+
+print "Enter the PIN: ";
+my $pin = <STDIN>;
+chomp $pin;
+
+my ($status, $ret);
+my ($ACCESS_TOKEN, $ACCESS_TOKEN_SECRET, $user_id, $screen_name);
+eval {
+	($ACCESS_TOKEN, $ACCESS_TOKEN_SECRET, $user_id, $screen_name) = $t->request_access_token(verifier => $pin);
+};
+if($@) {
+	print "Error: 401 Unauthorized\n";
+	$ret = 1;
+
+} else {
+	$cfg->param(-block=>'ACCESS_TOKEN', -values=>{'ACCESS_TOKEN' => $ACCESS_TOKEN, 'TOKEN_SECRET' => $ACCESS_TOKEN_SECRET});
+	$cfg->save();
+
+	print "Access Token[$ACCESS_TOKEN]\n";
+	print "Token Secret[$ACCESS_TOKEN_SECRET]\n";
+	$status = $t->update({ status => time() });
+	$t->destroy_status($status->{"id"});
+	$status->{"source"} =~ s/<.*?>//g;
+	my $message = "Success Authorized by " . $status->{"source"} . "[" . time() . "]";
+	$status = $t->update({ status => $message });
+	print "$message\n";
+	$ret = 0;
+}
+exit $ret;
+
