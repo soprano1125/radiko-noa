@@ -8,6 +8,7 @@ use LWP::UserAgent;
 use XML::Simple;
 use Encode;
 use Unicode::Japanese;
+use HTML::Entities;
 use Time::Piece;
 use Data::Dumper;
 
@@ -35,11 +36,11 @@ $cache_dir = "$base_path/noa_cache";
 $file_name = "$station_id.xml";
 
 if(!-d $cache_dir){
-	mkdir $cache_dir;
+	mkdir($cache_dir)  or die("can't mkdir $cache_dir");
 }
 
 if(!-f "$cache_dir/$file_name"){
-	open(FH, "> $cache_dir/$file_name") or die("cant open");
+	open(FH, "> $cache_dir/$file_name") or die("can't open $cache_dir/$file_name");
 	print FH "";
 	close(FH);
 }
@@ -57,7 +58,8 @@ my $noa = $data->{"noa"}->{"item"}[0];
 my $t = Time::Piece->strptime($noa->{"stamp"}, '%Y-%m-%d %H:%M:%S');
 my $noatime = sprintf("%04d/%02d/%02d %02d:%02d", $t->year, $t->mon, $t->mday, $t->hour, $t->minute);
 
-my $str = encode('utf-8', "[$noatime] " . $noa->{"artist"} . " - " . $noa->{"title"});
+my $make_value = sprintf("[%s] %s - %s", $noatime, $noa->{"artist"}, $noa->{"title"});
+my $str = encode('utf-8', HTML::Entities::decode($make_value));
 
 # コンシューマ セット
 my %INIT_PARAMS = (
@@ -87,7 +89,7 @@ eval {
 	$status = $t->update({ status => $tweet });
 };
 if($@) {
-	print "Tweet WARNING: $@\n";
+	print STDERR "Tweet WARNING: $@\n";
 	$ret = 1;
 
 } else {
