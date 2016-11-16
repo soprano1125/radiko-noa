@@ -29,6 +29,11 @@ $base_path =~ s/__FILE__//g;
 $setting_path = "$base_path/config";
 $setting_file = "$setting_path/$station_id.ini";
 
+if(!-f "$setting_file"){
+	print "not found setting file\n";
+	exit -1;
+}
+
 $param = new Config::Simple("$setting_file")->vars();
 my $max_length	= 140;
 
@@ -49,17 +54,21 @@ $ua = LWP::UserAgent->new();
 $ua->agent("Mozilla/5.0 (radiko-man/0.1)");
 $res = $ua->mirror("http://radiko.jp/v3/feed/pc/noa/$file_name", "$cache_dir/$file_name");
 if (!$res->is_success) {
+	print "no update\n";
 	exit 1;
 }
 
 $data = XML::Simple->new(keyattr => [])->XMLin("$cache_dir/$file_name");
 my $noa = $data->{"noa"}->{"item"}[0];
 
-my $t = Time::Piece->strptime($noa->{"stamp"}, '%Y-%m-%d %H:%M:%S');
-my $noatime = sprintf("%04d/%02d/%02d %02d:%02d", $t->year, $t->mon, $t->mday, $t->hour, $t->minute);
+# TIMESTAMP
+my $time = Time::Piece->strptime($noa->{"stamp"}, '%Y-%m-%d %H:%M:%S');
+my $noatime = sprintf("%04d/%02d/%02d %02d:%02d", $time->year, $time->mon, $time->mday, $time->hour, $time->minute);
 
-my $make_value = sprintf("[%s] %s - %s", $noatime, $noa->{"artist"}, $noa->{"title"});
+my $make_value = sprintf("%s - %s", $noa->{"artist"}, $noa->{"title"});
 my $str = encode('utf-8', HTML::Entities::decode($make_value));
+$str = Unicode::Japanese->new($str)->z2h->get;
+$str = Unicode::Japanese->new($str)->h2zKana->get;
 
 # コンシューマ セット
 my %INIT_PARAMS = (
@@ -78,14 +87,24 @@ binmode(STDOUT, ":utf8");
 
 # 投稿
 # delete strings
-my $tweet = decode('utf-8', $str);
+$str = decode('utf-8', $str);
+my $tweet = sprintf("[%s] %s", $noatime, $str);
 if(length($tweet) > $max_length) {
     $tweet = substr($tweet, 0, $max_length - 3) . "...";
 }
 
 # post to Twitter
-my ($status, $ret);
+my ($status, $statuses, $tmp_status, $ret);
 eval {
+	# check duplicate tweet
+	$statuses = $t->user_timeline({ count => 1 });
+	for my $user_tl (@$statuses) {
+		$tmp_status = $user_tl->{text};
+	}
+	$tmp_status =~ s|^\[(\d+)/(\d+)/(\d+) (\d+):(\d+)\] ||;
+	print "duplicate?[".$str."][$tmp_status]\n";
+	if($str eq $tmp_status){ print "duplicate![".$str."][$tmp_status]\n"; exit -1; }
+
 	$status = $t->update({ status => $tweet });
 };
 if($@) {
